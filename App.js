@@ -2,6 +2,8 @@
 const supabaseUrl = 'https://ggjnbuzccbzjmglqnogn.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdnam5idXpjY2J6am1nbHFub2duIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg4NzUzMTYsImV4cCI6MjA2NDQ1MTMxNn0.HNYXd76qqafI-_svz7h6fkmkppcHRa2Aya03rUSYxis';
 const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+console.log('Supabase:', supabase);
+
 
 // Application Data
 const appData = {
