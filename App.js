@@ -268,6 +268,11 @@ const appData = {
   }
 };
 
+// Initialize Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || 'https://ggjnbuzccbzjmglqnogn.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdnam5idXpjY2J6am1nbHFub2duIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg4NzUzMTYsImV4cCI6MjA2NDQ1MTMxNn0.HNYXd76qqafI-_svz7h6fkmkppcHRa2Aya03rUSYxis';
+const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
 // Application State
 let currentSection = 'login';
 let currentQuestionIndex = 0;
@@ -297,49 +302,150 @@ function initializeApp() {
                 <img src="Logo_Aiutati_Tondo.jpg" alt="Aiutati Logo" class="login-logo__img">
             </div>
             <h2 class="login-title">Prompt Design Quiz</h2>
-            <p class="login-subtitle">Inserisci i tuoi dati per iniziare</p>
-            <form id="loginForm" class="login-form">
+            <p class="login-subtitle">Accedi o registrati per iniziare</p>
+            <form id="authForm" class="login-form">
                 <div class="form-group">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" id="email" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" id="password" class="form-control" required>
+                </div>
+                 <div class="form-group" id="nameSurnameGroup" style="display: none;">
                     <label for="name" class="form-label">Nome</label>
-                    <input type="text" id="name" class="form-control" required>
+                    <input type="text" id="name" class="form-control">
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="surnameGroup" style="display: none;">
                     <label for="surname" class="form-label">Cognome</label>
-                    <input type="text" id="surname" class="form-control" required>
+                    <input type="text" id="surname" class="form-control">
                 </div>
-                <button type="submit" class="btn btn--primary btn--lg">
-                    Inizia
-                </button>
+                <button type="submit" class="btn btn--primary btn--lg" id="authButton">Accedi</button>
+                <button type="button" class="btn btn--secondary btn--lg mt-8" id="toggleAuthMode">Registrati</button>
             </form>
         </div>
     `;
 
-    // Add login form handler
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
+    // Add form handler
+    const authForm = document.getElementById('authForm');
+    const authButton = document.getElementById('authButton');
+    const toggleAuthModeButton = document.getElementById('toggleAuthMode');
+    const nameSurnameGroup = document.getElementById('nameSurnameGroup');
+    const surnameGroup = document.getElementById('surnameGroup');
+    let isLoginMode = true;
+
+    toggleAuthModeButton.addEventListener('click', () => {
+        isLoginMode = !isLoginMode;
+        if (isLoginMode) {
+            authButton.textContent = 'Accedi';
+            toggleAuthModeButton.textContent = 'Registrati';
+            nameSurnameGroup.style.display = 'none';
+            surnameGroup.style.display = 'none';
+             document.getElementById('name').required = false;
+             document.getElementById('surname').required = false;
+        } else {
+            authButton.textContent = 'Registrati';
+            toggleAuthModeButton.textContent = 'Hai già un account? Accedi';
+            nameSurnameGroup.style.display = 'block';
+            surnameGroup.style.display = 'block';
+             document.getElementById('name').required = true;
+             document.getElementById('surname').required = true;
+        }
+    });
+
+
+    authForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        const name = document.getElementById('name').value;
-        const surname = document.getElementById('surname').value;
-        
-        // Update user profile
-        appData.userProfile.name = name;
-        appData.userProfile.surname = surname;
-        
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        if (isLoginMode) {
+            // Sign In
+            const { user, error } = await supabase.auth.signInWithPassword({ email, password });
+            if (error) {
+                showToast(error.message, 'error');
+            } else {
+                 await handleAuthSuccess(user);
+            }
+        } else {
+            // Sign Up
+            const name = document.getElementById('name').value;
+            const surname = document.getElementById('surname').value;
+
+            const { user, error } = await supabase.auth.signUp({ email, password });
+            if (error) {
+                showToast(error.message, 'error');
+            } else if (user) {
+                // Store name and surname in a profiles table
+                 const { data, error: profileError } = await supabase
+                    .from('profiles') // Make sure you have a 'profiles' table in Supabase
+                    .insert([{ id: user.id, name: name, surname: surname }]);
+
+                if (profileError) {
+                    console.error('Error saving profile:', profileError);
+                    showToast('Registration successful, but could not save profile info.', 'warning');
+                } else {
+                     showToast('Registrazione completata con successo! Controlla la tua email per la verifica.', 'success');
+                      // Optionally, you might want to redirect or show a message to check email
+                       // For now, let's just log them in after successful signup + profile save
+                       await handleAuthSuccess(user);
+                }
+
+            }
+        }
+    });
+
+    // Function to handle successful authentication
+    async function handleAuthSuccess(user) {
+         // Fetch user profile (name and surname)
+         const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('name, surname')
+            .eq('id', user.id)
+            .single();
+
+         if (profileError) {
+             console.error('Error fetching profile:', profileError);
+             showToast('Could not fetch user profile.', 'error');
+             // You might want to handle this error differently, e.g., sign them out
+             return;
+         }
+
+         appData.currentUser = user; // Store the Supabase user object
+         appData.userProfile.name = profileData.name; // Update user profile with fetched data
+         appData.userProfile.surname = profileData.surname; // Update user profile with fetched data
+
         // Update welcome message
         const welcomeTitle = document.querySelector('.welcome__title');
         if (welcomeTitle) {
-            welcomeTitle.innerHTML = `Benvenuto, <span class="highlight">${name} ${surname}</span>`;
+            welcomeTitle.innerHTML = `Benvenuto, <span class="highlight">${appData.userProfile.name} ${appData.userProfile.surname}</span>`;
         }
-        
+
         // Show dashboard
         showSection('dashboard');
-        showToast('Benvenuto nel Prompt Design Dashboard!', 'success');
-    });
+        showToast('Accesso effettuato con successo!', 'success');
+    }
 
     // Initialize other components
     initializeNavigation();
     initializeDashboard();
     initializeQuiz();
     initializeResults();
+
+     // Check for existing session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+        if (session) {
+            console.log('Existing session found', session);
+            // User is logged in, handle success
+             await handleAuthSuccess(session.user);
+        } else {
+            console.log('No existing session');
+            // No session, stay on login page
+        }
+    }).catch((error) => {
+         console.error('Error checking session:', error);
+         showToast('Error checking session: ' + error.message, 'error');
+    });
 }
 
 // Navigation Management
@@ -646,7 +752,7 @@ function finishQuiz() {
     }, 500);
 }
 
-function calculateResults() {
+async function calculateResults() {
     const totalQuestions = appData.quizQuestions.length;
     const correctAnswers = userAnswers.filter(answer => answer.isCorrect).length;
     const score = Math.round((correctAnswers / totalQuestions) * 100);
@@ -676,6 +782,120 @@ function calculateResults() {
         categoryScores: categoryPercentages,
         passed: score >= 80
     };
+
+    // Save results to Supabase
+    try {
+        const { data, error } = await supabase
+            .from('quiz_results')
+            .insert([{
+                user_id: appData.currentUser.id,
+                score: score,
+                correct_answers: correctAnswers,
+                total_questions: totalQuestions,
+                completion_time: 30 - timeLeft, // Time taken in seconds
+                category_scores: categoryPercentages
+            }]);
+
+        if (error) {
+            console.error('Error saving quiz results:', error);
+            showToast('Errore nel salvare i risultati del quiz', 'error');
+        } else {
+            console.log('Quiz results saved successfully:', data);
+            // Update dashboard stats after saving results
+            await updateDashboardStats();
+        }
+    } catch (error) {
+        console.error('Error in saving quiz results:', error);
+        showToast('Errore nel salvare i risultati del quiz', 'error');
+    }
+}
+
+// Function to fetch and update dashboard stats
+async function updateDashboardStats() {
+    try {
+        // Fetch user's quiz history
+        const { data: quizHistory, error: quizError } = await supabase
+            .from('quiz_results')
+            .select('*')
+            .eq('user_id', appData.currentUser.id)
+            .order('completion_date', { ascending: false });
+
+        if (quizError) {
+            console.error('Error fetching quiz history:', quizError);
+            return;
+        }
+
+        // Update user profile stats
+        if (quizHistory && quizHistory.length > 0) {
+            const totalQuizzes = quizHistory.length;
+            const avgScore = Math.round(quizHistory.reduce((acc, quiz) => acc + quiz.score, 0) / totalQuizzes);
+            const avgTime = Math.round(quizHistory.reduce((acc, quiz) => acc + quiz.completion_time, 0) / totalQuizzes);
+
+            appData.userProfile.totalQuizzes = totalQuizzes;
+            appData.userProfile.averageScore = avgScore;
+            appData.userProfile.averageTime = `${avgTime} minuti`;
+
+            // Update dashboard stats
+            appData.dashboardStats.totalUsers = totalQuizzes;
+            appData.dashboardStats.avgCompletionTime = `${avgTime} minuti`;
+            appData.dashboardStats.passRate = Math.round((quizHistory.filter(quiz => quiz.score >= 80).length / totalQuizzes) * 100);
+
+            // Calculate category averages
+            const categoryTotals = {};
+            quizHistory.forEach(quiz => {
+                quiz.category_scores.forEach(cat => {
+                    if (!categoryTotals[cat.category]) {
+                        categoryTotals[cat.category] = { sum: 0, count: 0 };
+                    }
+                    categoryTotals[cat.category].sum += cat.score;
+                    categoryTotals[cat.category].count++;
+                });
+            });
+
+            appData.dashboardStats.topCategories = Object.entries(categoryTotals).map(([category, data]) => ({
+                name: category,
+                score: Math.round(data.sum / data.count)
+            }));
+
+            // Update recent scores
+            appData.dashboardStats.recentScores = quizHistory.slice(0, 5).map(quiz => ({
+                name: `${appData.userProfile.name} ${appData.userProfile.surname}`,
+                score: quiz.score,
+                date: quiz.completion_date
+            }));
+
+            // Update dashboard UI
+            updateDashboardUI();
+        }
+    } catch (error) {
+        console.error('Error updating dashboard stats:', error);
+    }
+}
+
+// Function to update dashboard UI with new stats
+function updateDashboardUI() {
+    // Update stat cards
+    document.querySelector('.stat-card:nth-child(1) .stat-card__number').textContent = appData.userProfile.totalQuizzes;
+    document.querySelector('.stat-card:nth-child(2) .stat-card__number').textContent = appData.dashboardStats.passRate + '%';
+    document.querySelector('.stat-card:nth-child(3) .stat-card__number').textContent = appData.dashboardStats.avgCompletionTime;
+    document.querySelector('.stat-card:nth-child(4) .stat-card__number').textContent = appData.userProfile.averageScore + '%';
+
+    // Update progress circle
+    const progressCircle = document.querySelector('.progress-circle__fill');
+    if (progressCircle) {
+        const progress = (appData.userProfile.averageScore / 100) * 314; // 314 is the circumference
+        progressCircle.style.strokeDashoffset = 314 - progress;
+    }
+    document.querySelector('.progress-circle__percentage').textContent = appData.userProfile.averageScore + '%';
+
+    // Update leaderboard
+    renderLeaderboard();
+
+    // Update performance chart
+    if (performanceChart) {
+        performanceChart.destroy();
+    }
+    createPerformanceChart();
 }
 
 // Results Functions

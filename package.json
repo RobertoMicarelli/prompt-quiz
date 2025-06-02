@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "start": "http-server -p 3000"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.9"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
